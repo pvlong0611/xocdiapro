@@ -7,33 +7,30 @@ st.set_page_config(
     page_title="Xóc Đĩa Pro - Mobile Optimized", layout="centered"
 )
 
-# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG & THU NHỎ THÔNG BÁO ---
+# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG (TO, RÕ, DỄ BẤM) ---
 st.markdown("""
     <style>
+    /* Phóng to các nút bấm nhập liệu và chỉnh màu sắc nổi bật */
     div.stButton > button {
-        height: 55px;
-        font-size: 18px !important;
+        height: 60px;
+        font-size: 20px !important;
         font-weight: bold;
-        border-radius: 10px;
-        background-color: #f8f9fa;
-        border: 2px solid #cbd5e1;
-        color: #1e293b;
+        border-radius: 12px;
+        background-color: #f0f2f6;
+        border: 2px solid #d3d3d3;
+        color: #1f1f1f;
     }
     div.stButton > button:hover {
-        background-color: #ef4444;
+        background-color: #ff4b4b;
         color: white;
-        border-color: #ef4444;
+        border-color: #ff4b4b;
     }
+    /* Thu gọn lề trang để vừa khít màn hình điện thoại */
     .block-container {
-        padding-top: 0.8rem;
+        padding-top: 1rem;
         padding-bottom: 2rem;
-        padding-left: 0.8rem;
-        padding-right: 0.8rem;
-    }
-    .stAlert {
-        padding: 6px 12px !important;
-        font-size: 14px !important;
-        margin-bottom: 0.5rem !important;
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -75,9 +72,10 @@ st.sidebar.markdown(f"🎯 **Chốt Lãi:** +{take_profit_amount:,.0f}")
 
 
 # --- PHẦN 2: BÀN PHÍM NHẬP LIỆU TO (0, 1, 2, 3, 4) ---
-st.markdown("### ⌨️ Nhập Kết Quả")
+st.markdown("### ⌨️ Nhập Kết Quả (Chạm để chọn số đỏ)")
 cols_btn = st.columns(6)
 
+# Rút gọn nhãn chỉ hiển thị số quân đỏ theo đúng yêu cầu
 label_map = {0: "0 Đỏ", 1: "1 Đỏ", 2: "2 Đỏ", 3: "3 Đỏ", 4: "4 Đỏ"}
 odds_map = {0: 16.0, 1: 4.8, 2: 3.6, 3: 4.8, 4: 16.0}
 
@@ -97,47 +95,116 @@ if st.sidebar.button("🗑 Reset Lịch Sử"):
   st.session_state.history = []
   st.rerun()
 
+
+# Các hàm quy đổi trạng thái
+def get_chan_le(val):
+  return "C" if val in [0, 2, 4] else "L"
+
+
+def get_tai_xiu(val):
+  if val > 2:
+    return "T"
+  elif val < 2:
+    return "X"
+  else:
+    return "2"
+
+
 history = st.session_state.history
 
 
-# --- PHẦN 3: PHÂN TÍCH MARKOV + THUẬT TOÁN PHÁT HIỆN CẦU BỆT ---
+# --- PHẦN 3: XÂY DỰNG BẢNG CẦU GỌN GÀNG CHO ĐIỆN THOẠI ---
+def create_compact_casino_grid(data_list, max_rows=5, max_cols=8):
+  if not data_list:
+    return pd.DataFrame()
+
+  columns_list = []
+  current_col = []
+
+  for i, val in enumerate(data_list):
+    if i == 0:
+      current_col.append(val)
+    else:
+      if val == data_list[i - 1]:
+        if len(current_col) < max_rows:
+          current_col.append(val)
+        else:
+          columns_list.append(current_col)
+          current_col = [val]
+      else:
+        columns_list.append(current_col)
+        current_col = [val]
+  if current_col:
+    columns_list.append(current_col)
+
+  num_cols_total = len(columns_list)
+  matrix = [["" for _ in range(num_cols_total)] for _ in range(max_rows)]
+
+  for col_idx, col_data in enumerate(columns_list):
+    for row_idx, val in enumerate(col_data):
+      matrix[row_idx][col_idx] = val
+
+  df_full = pd.DataFrame(matrix)
+  if num_cols_total > max_cols:
+    df_clipped = df_full.iloc[:, -max_cols:]
+  else:
+    df_clipped = df_full
+
+  df_clipped.columns = [f"C{i+1}" for i in range(df_clipped.shape[1])]
+  return df_clipped
+
+
 st.markdown("---")
-st.subheader("🤖 Phân Tích & Vào Tiền")
+col_b1, col_b2, col_b3 = st.columns(3)
+
+with col_b1:
+  st.markdown("**📊 C/L**")
+  cl_data = [get_chan_le(v) for v in history]
+  df_cl = create_compact_casino_grid(cl_data)
+  if not df_cl.empty:
+    st.dataframe(df_cl, use_container_width=True, hide_index=True)
+  else:
+    st.info("Trống")
+
+with col_b2:
+  st.markdown("**📊 T/X/2**")
+  tx_data = [get_tai_xiu(v) for v in history]
+  df_tx = create_compact_casino_grid(tx_data)
+  if not df_tx.empty:
+    st.dataframe(df_tx, use_container_width=True, hide_index=True)
+  else:
+    st.info("Trống")
+
+with col_b3:
+  st.markdown("**📊 Số Đỏ**")  # Bảng chi tiết chỉ hiển thị số (0, 1, 2, 3, 4)
+  chitiet_data = [str(v) for v in history]
+  df_ct = create_compact_casino_grid(chitiet_data)
+  if not df_ct.empty:
+    st.dataframe(df_ct, use_container_width=True, hide_index=True)
+  else:
+    st.info("Trống")
+
+
+# --- PHẦN 4: THUẬT TOÁN MARKOV BẬC 2 & BỘ LỌC ĐỘ NHIỄU ---
+st.markdown("---")
+st.subheader("🤖 Phân Tích & Vào Tiền (Bội Số 10k)")
 
 if len(history) >= 6:
-  # 1. Thuật toán phát hiện cầu bệt (Streak Momentum)
-  is_streak_detected = False
-  streak_bonus_pred = None
-  streak_count = 0
+  recent_window = history[-6:]
+  changes = sum(
+      1
+      for i in range(len(recent_window) - 1)
+      if recent_window[i] != recent_window[i + 1]
+  )
+  noise_score = (changes / (len(recent_window) - 1)) * 100
 
-  if len(history) >= 3:
-    last_val = history[-1]
-    for v in reversed(history):
-      if v == last_val:
-        streak_count += 1
-      else:
-        break
-    if streak_count >= 3:
-      is_streak_detected = True
-      streak_bonus_pred = last_val
-
-  # Hiển thị cảnh báo nếu bắt gặp cầu bệt
-  if is_streak_detected:
-    st.warning(
-        f"🔥 **PHÁT HIỆN CẦU BỆT:** Đang bệt số **{streak_bonus_pred}**"
-        f" ({streak_count} tay liên tiếp) -> Ưu tiên bám đuôi!"
-    )
-
-  # 2. Thuật toán Markov Bậc 2 kết hợp trọng số ván gần nhất
   transitions = {}
   for i in range(len(history) - 2):
     curr_pair = (history[i], history[i + 1])
     nxt = history[i + 2]
     if curr_pair not in transitions:
       transitions[curr_pair] = []
-    weight = 2 if i >= len(history) - 10 else 1
-    for _ in range(weight):
-      transitions[curr_pair].append(nxt)
+    transitions[curr_pair].append(nxt)
 
   last_pair = (history[-2], history[-1])
   if last_pair in transitions and transitions[last_pair]:
@@ -151,13 +218,6 @@ if len(history) >= 6:
   main_pred = top_items[0][0] if len(top_items) > 0 else history[-1]
   sub_pred = top_items[1][0] if len(top_items) > 1 else (main_pred + 1) % 5
 
-  # Nếu phát hiện cầu bệt rõ ràng, ưu tiên đưa cửa bệt lên làm cửa chính
-  if is_streak_detected and streak_bonus_pred is not None:
-    if streak_bonus_pred != main_pred:
-      sub_pred = main_pred
-      main_pred = streak_bonus_pred
-
-  # Tính chuỗi xịt liên tiếp để quản lý vốn
   recent_checks = []
   for i in range(4, len(history)):
     sub_hist = history[:i]
@@ -196,6 +256,7 @@ if len(history) >= 6:
     multiplier = 1
 
   total_current_bet = base_bet * multiplier
+
   K1 = odds_map[main_pred]
   K2 = odds_map[sub_pred]
 
@@ -211,27 +272,45 @@ if len(history) >= 6:
 
   total_current_bet = money_main + money_sub
 
-  # Hiển thị Dự đoán
+  if noise_score >= 80:
+    st.error(f"🚨 **CẦU NHIỄU NẶNG ({noise_score:.0f}%):** Tạm nghỉ!")
+  elif noise_score >= 60:
+    st.warning(f"⚠️ **CẦU HƠI NHIỄU ({noise_score:.0f}%):** Đánh nhỏ thăm dò.")
+  else:
+    st.success(f"🟢 **CẦU ỔN ĐỊNH ({noise_score:.0f}%):** Tín hiệu tốt.")
+
   col_m1, col_m2 = st.columns(2)
   with col_m1:
     st.metric(
-        label="🎯 Cửa Chính",
+        label="🎯 Dự Đoán",
         value=f"⭐ {label_map[main_pred]}",
-        delta=f"{money_main:,.0f} VNĐ",
+        delta=f"🔹 {label_map[sub_pred]}",
     )
   with col_m2:
     st.metric(
-        label="🔹 Cửa Phụ",
-        value=f"🔹 {label_map[sub_pred]}",
-        delta=f"{money_sub:,.0f} VNĐ",
+        label="💰 Tổng Cược",
+        value=f"{total_current_bet:,.0f} VNĐ",
+        delta=f"x{multiplier}",
     )
 
-  st.info(
-      f"💰 **Tổng Cược:** `{total_current_bet:,.0f} VNĐ` (x{multiplier}"
-      f" | Xịt liên tiếp: {current_loss_streak})"
-  )
+  st.markdown("---")
+  st.markdown("### 📋 Phân Bổ Tiền (Tròn 10k)")
+  col_t1, col_t2 = st.columns(2)
+  with col_t1:
+    st.markdown(
+        f"* ⭐ **Cửa Chính (`{label_map[main_pred]}`):**"
+        f" **`{money_main:,.0f} VNĐ`**"
+    )
+  with col_t2:
+    st.markdown(
+        f"* 🔹 **Cửa Phụ (`{label_map[sub_pred]}`):**"
+        f" **`{money_sub:,.0f} VNĐ`**"
+    )
 
-  # --- TÍNH TOÁN LỊCH SỬ DÒNG TIỀN ĐỂ ĐẨY LÊN TRÊN ---
+  # --- PHẦN 5: SAO KÊ DÒNG TIỀN ---
+  st.markdown("---")
+  st.subheader("📊 Lịch Sử Dòng Tiền")
+
   simulation_data = []
   running_capital = total_capital
   sim_loss_streak = 0
@@ -305,109 +384,20 @@ if len(history) >= 6:
           "Ví": f"{running_capital:,.0f}",
       })
 
-  # --- HIỂN THỊ SỐ DƯ VÍ & LỊCH SỬ DÒNG TIỀN Ở KHUNG TRÊN ---
   if simulation_data:
-    st.markdown("---")
-    col_w1, col_w2 = st.columns(2)
-    with col_w1:
-      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f} VNĐ")
-    with col_w2:
+    df_sim = pd.DataFrame(simulation_data)
+    st.dataframe(df_sim, use_container_width=True, hide_index=True)
+
+    net_profit = running_capital - total_capital
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f}")
+    with col_s2:
       if running_capital <= total_capital - stop_loss_amount:
         st.error("🚨 CHẠM CẮT LỖ!")
       elif running_capital >= total_capital + take_profit_amount:
         st.success("🎯 ĐẠT CHỐT LÃI!")
       else:
-        st.info("⚖️ Trạng thái: An toàn")
-
-    st.markdown("### 📊 Lịch Sử Dòng Tiền")
-    df_sim = pd.DataFrame(simulation_data)
-    df_sim = df_sim.iloc[::-1].reset_index(drop=True)
-    st.dataframe(df_sim, use_container_width=True, hide_index=True)
+        st.info("⚖️ An toàn.")
 else:
-  st.warning("⚠️ Nhập tối thiểu 6 ván để kích hoạt dự đoán.")
-
-
-# --- PHẦN 4: BẢNG CẦU CHI TIẾT (ĐỂ PHÍA DƯỚI) ---
-def get_chan_le(val):
-  return "C" if val in [0, 2, 4] else "L"
-
-
-def get_tai_xiu(val):
-  if val > 2:
-    return "T"
-  elif val < 2:
-    return "X"
-  else:
-    return "2"
-
-
-def create_compact_casino_grid(data_list, max_rows=5, max_cols=8):
-  if not data_list:
-    return pd.DataFrame()
-
-  columns_list = []
-  current_col = []
-
-  for i, val in enumerate(data_list):
-    if i == 0:
-      current_col.append(val)
-    else:
-      if val == data_list[i - 1]:
-        if len(current_col) < max_rows:
-          current_col.append(val)
-        else:
-          columns_list.append(current_col)
-          current_col = [val]
-      else:
-        columns_list.append(current_col)
-        current_col = [val]
-  if current_col:
-    columns_list.append(current_col)
-
-  num_cols_total = len(columns_list)
-  matrix = [["" for _ in range(num_cols_total)] for _ in range(max_rows)]
-
-  for col_idx, col_data in enumerate(columns_list):
-    for row_idx, val in enumerate(col_data):
-      matrix[row_idx][col_idx] = val
-
-  df_full = pd.DataFrame(matrix)
-  if num_cols_total > max_cols:
-    df_clipped = df_full.iloc[:, -max_cols:]
-  else:
-    df_clipped = df_full
-
-  df_clipped.columns = [f"C{i+1}" for i in range(df_clipped.shape[1])]
-  return df_clipped
-
-
-st.markdown("---")
-st.markdown("### 📈 Lịch Sử Cầu Bàn Chơi")
-col_b1, col_b2, col_b3 = st.columns(3)
-
-with col_b1:
-  st.markdown("**C/L**")
-  cl_data = [get_chan_le(v) for v in history]
-  df_cl = create_compact_casino_grid(cl_data)
-  if not df_cl.empty:
-    st.dataframe(df_cl, use_container_width=True, hide_index=True)
-  else:
-    st.info("Trống")
-
-with col_b2:
-  st.markdown("**T/X/2**")
-  tx_data = [get_tai_xiu(v) for v in history]
-  df_tx = create_compact_casino_grid(tx_data)
-  if not df_tx.empty:
-    st.dataframe(df_tx, use_container_width=True, hide_index=True)
-  else:
-    st.info("Trống")
-
-with col_b3:
-  st.markdown("**Số Đỏ**")
-  chitiet_data = [str(v) for v in history]
-  df_ct = create_compact_casino_grid(chitiet_data)
-  if not df_ct.empty:
-    st.dataframe(df_ct, use_container_width=True, hide_index=True)
-  else:
-    st.info("Trống")
+  st.warning("⚠️ Nhập tối thiểu 6 ván để kích hoạt.")
