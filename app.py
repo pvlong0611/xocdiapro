@@ -7,28 +7,33 @@ st.set_page_config(
     page_title="Xóc Đĩa Pro - Mobile Optimized", layout="centered"
 )
 
-# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG ---
+# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG & THU NHỎ THÔNG BÁO ---
 st.markdown("""
     <style>
     div.stButton > button {
-        height: 60px;
-        font-size: 20px !important;
+        height: 55px;
+        font-size: 18px !important;
         font-weight: bold;
-        border-radius: 12px;
-        background-color: #f0f2f6;
-        border: 2px solid #d3d3d3;
-        color: #1f1f1f;
+        border-radius: 10px;
+        background-color: #f8f9fa;
+        border: 2px solid #cbd5e1;
+        color: #1e293b;
     }
     div.stButton > button:hover {
-        background-color: #ff4b4b;
+        background-color: #ef4444;
         color: white;
-        border-color: #ff4b4b;
+        border-color: #ef4444;
     }
     .block-container {
-        padding-top: 1rem;
+        padding-top: 0.8rem;
         padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
+    .stAlert {
+        padding: 6px 12px !important;
+        font-size: 14px !important;
+        margin-bottom: 0.5rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -70,7 +75,7 @@ st.sidebar.markdown(f"🎯 **Chốt Lãi:** +{take_profit_amount:,.0f}")
 
 
 # --- PHẦN 2: BÀN PHÍM NHẬP LIỆU TO (0, 1, 2, 3, 4) ---
-st.markdown("### ⌨️ Nhập Kết Quả (Chạm để chọn số đỏ)")
+st.markdown("### ⌨️ Nhập Kết Quả")
 cols_btn = st.columns(6)
 
 label_map = {0: "0 Đỏ", 1: "1 Đỏ", 2: "2 Đỏ", 3: "3 Đỏ", 4: "4 Đỏ"}
@@ -95,19 +100,44 @@ if st.sidebar.button("🗑 Reset Lịch Sử"):
 history = st.session_state.history
 
 
-# --- PHẦN 3: THUẬT TOÁN MARKOV BẬC 2 & ĐẨY DÒNG TIỀN LÊN TRÊN ---
+# --- PHẦN 3: PHÂN TÍCH MARKOV + THUẬT TOÁN PHÁT HIỆN CẦU BỆT ---
 st.markdown("---")
-st.subheader("🤖 Phân Tích & Vào Tiền (Bội Số 10k)")
+st.subheader("🤖 Phân Tích & Vào Tiền")
 
 if len(history) >= 6:
-  # Thuật toán Markov Bậc 2 chuẩn xác
+  # 1. Thuật toán phát hiện cầu bệt (Streak Momentum)
+  is_streak_detected = False
+  streak_bonus_pred = None
+  streak_count = 0
+
+  if len(history) >= 3:
+    last_val = history[-1]
+    for v in reversed(history):
+      if v == last_val:
+        streak_count += 1
+      else:
+        break
+    if streak_count >= 3:
+      is_streak_detected = True
+      streak_bonus_pred = last_val
+
+  # Hiển thị cảnh báo nếu bắt gặp cầu bệt
+  if is_streak_detected:
+    st.warning(
+        f"🔥 **PHÁT HIỆN CẦU BỆT:** Đang bệt số **{streak_bonus_pred}**"
+        f" ({streak_count} tay liên tiếp) -> Ưu tiên bám đuôi!"
+    )
+
+  # 2. Thuật toán Markov Bậc 2 kết hợp trọng số ván gần nhất
   transitions = {}
   for i in range(len(history) - 2):
     curr_pair = (history[i], history[i + 1])
     nxt = history[i + 2]
     if curr_pair not in transitions:
       transitions[curr_pair] = []
-    transitions[curr_pair].append(nxt)
+    weight = 2 if i >= len(history) - 10 else 1
+    for _ in range(weight):
+      transitions[curr_pair].append(nxt)
 
   last_pair = (history[-2], history[-1])
   if last_pair in transitions and transitions[last_pair]:
@@ -121,7 +151,13 @@ if len(history) >= 6:
   main_pred = top_items[0][0] if len(top_items) > 0 else history[-1]
   sub_pred = top_items[1][0] if len(top_items) > 1 else (main_pred + 1) % 5
 
-  # Tính chuỗi xịt liên tiếp
+  # Nếu phát hiện cầu bệt rõ ràng, ưu tiên đưa cửa bệt lên làm cửa chính
+  if is_streak_detected and streak_bonus_pred is not None:
+    if streak_bonus_pred != main_pred:
+      sub_pred = main_pred
+      main_pred = streak_bonus_pred
+
+  # Tính chuỗi xịt liên tiếp để quản lý vốn
   recent_checks = []
   for i in range(4, len(history)):
     sub_hist = history[:i]
@@ -160,7 +196,6 @@ if len(history) >= 6:
     multiplier = 1
 
   total_current_bet = base_bet * multiplier
-
   K1 = odds_map[main_pred]
   K2 = odds_map[sub_pred]
 
@@ -176,7 +211,7 @@ if len(history) >= 6:
 
   total_current_bet = money_main + money_sub
 
-  # Hiển thị kết quả dự đoán gộp
+  # Hiển thị Dự đoán
   col_m1, col_m2 = st.columns(2)
   with col_m1:
     st.metric(
@@ -192,14 +227,11 @@ if len(history) >= 6:
     )
 
   st.info(
-      f"💰 **Tổng Cược:** `{total_current_bet:,.0f} VNĐ` (Hệ số x{multiplier}"
-      f" | Xịt liên tiếp: {current_loss_streak} tay)"
+      f"💰 **Tổng Cược:** `{total_current_bet:,.0f} VNĐ` (x{multiplier}"
+      f" | Xịt liên tiếp: {current_loss_streak})"
   )
 
-  # --- SAO KÊ DÒNG TIỀN ĐÃ ĐƯỢC ĐẨY LÊN TRÊN ---
-  st.markdown("---")
-  st.subheader("📊 Lịch Sử Dòng Tiền & Số Dư Ví")
-
+  # --- TÍNH TOÁN LỊCH SỬ DÒNG TIỀN ĐỂ ĐẨY LÊN TRÊN ---
   simulation_data = []
   running_capital = total_capital
   sim_loss_streak = 0
@@ -273,21 +305,24 @@ if len(history) >= 6:
           "Ví": f"{running_capital:,.0f}",
       })
 
+  # --- HIỂN THỊ SỐ DƯ VÍ & LỊCH SỬ DÒNG TIỀN Ở KHUNG TRÊN ---
   if simulation_data:
-    df_sim = pd.DataFrame(simulation_data)
-    st.dataframe(df_sim, use_container_width=True, hide_index=True)
-
-    net_profit = running_capital - total_capital
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f}")
-    with col_s2:
+    st.markdown("---")
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f} VNĐ")
+    with col_w2:
       if running_capital <= total_capital - stop_loss_amount:
         st.error("🚨 CHẠM CẮT LỖ!")
       elif running_capital >= total_capital + take_profit_amount:
         st.success("🎯 ĐẠT CHỐT LÃI!")
       else:
-        st.info("⚖️ An toàn.")
+        st.info("⚖️ Trạng thái: An toàn")
+
+    st.markdown("### 📊 Lịch Sử Dòng Tiền")
+    df_sim = pd.DataFrame(simulation_data)
+    df_sim = df_sim.iloc[::-1].reset_index(drop=True)
+    st.dataframe(df_sim, use_container_width=True, hide_index=True)
 else:
   st.warning("⚠️ Nhập tối thiểu 6 ván để kích hoạt dự đoán.")
 
@@ -347,7 +382,7 @@ def create_compact_casino_grid(data_list, max_rows=5, max_cols=8):
 
 
 st.markdown("---")
-st.markdown("### 📊 Lịch Sử Cầu Bàn Chơi")
+st.markdown("### 📈 Lịch Sử Cầu Bàn Chơi")
 col_b1, col_b2, col_b3 = st.columns(3)
 
 with col_b1:
