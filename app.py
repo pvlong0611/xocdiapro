@@ -80,7 +80,7 @@ cols_btn = st.columns(6)
 
 label_map = {0: "4 Trắng", 1: "1 Đỏ 3 Trắng", 2: "2 Đỏ 2 Trắng", 3: "3 Đỏ 1 Trắng", 4: "4 Đỏ"}
 
-# CẬP NHẬT TỶ LỆ ĂN CHUẨN THỰC TẾ NHÀ CÁI ONLINE
+# Tỷ lệ ăn chuẩn nhà cái online thực tế
 odds_map = {0: 15.0, 1: 3.8, 2: 2.6, 3: 3.8, 4: 15.0}
 
 for val in range(5):
@@ -102,7 +102,7 @@ if st.sidebar.button("🗑 Reset Lịch Sử"):
 history = st.session_state.history
 
 
-# --- HÀM THUẬT TOÁN DỰ ĐOÁN CHUẨN (DÙNG CHUNG) ---
+# --- HÀM THUẬT TOÁN DỰ ĐOÁN 2 CỬA (CHÍNH & PHỤ) ---
 def get_prediction_for_slice(hist_slice):
   if len(hist_slice) < 6:
     return None, None, False, None, 0
@@ -154,9 +154,29 @@ def get_prediction_for_slice(hist_slice):
   return main_pred, sub_pred, is_streak_detected, streak_bonus_pred, streak_count
 
 
+# --- HÀM TÍNH TOÁN PHÂN BỔ TIỀN 2 CỬA CÂN BẰNG ---
+def calculate_money_split(total_bet, main_pred, sub_pred):
+  k_m = odds_map[main_pred]
+  k_s = odds_map[sub_pred]
+
+  # Phân bổ tỷ trọng thông minh để cân đối lợi nhuận giữa 2 cửa
+  raw_money_main = total_bet * (k_s / (k_m + k_s))
+  money_main = round(raw_money_main / 10000) * 10000
+  if money_main < 10000:
+    money_main = 10000
+
+  money_sub = total_bet - money_main
+  money_sub = round(money_sub / 10000) * 10000
+  if money_sub < 10000:
+    money_sub = 10000
+
+  actual_total = money_main + money_sub
+  return money_main, money_sub, actual_total
+
+
 # --- PHẦN 3: PHÂN TÍCH & DỰ ĐOÁN (TỪ VÁN THỨ 7 TRỞ ĐI) ---
 st.markdown("---")
-st.subheader("🤖 Phân Tích & Vào Tiền (Từ Ván 7)")
+st.subheader("🤖 Phân Tích & Vào Tiền 2 Cửa (Từ Ván 7)")
 
 if len(history) >= 6:
   main_pred, sub_pred, is_streak_detected, streak_bonus_pred, streak_count = (
@@ -165,11 +185,11 @@ if len(history) >= 6:
 
   if is_streak_detected:
     st.warning(
-        f"🔥 **PHÁT HIỆN CẦU BỆT:** Đang bệt số **{streak_bonus_pred}**"
+        f"🔥 **PHÁT HIỆN CẦU BỆT:** Đang bệt số **{label_map[streak_bonus_pred]}**"
         f" ({streak_count} tay liên tiếp) -> Ưu tiên bám đuôi!"
     )
 
-  # --- TÍNH TOÁN CHUỖI XỊT THỰC TẾ ---
+  # --- TÍNH TOÁN CHUỖI XỊT THỰC TẾ CHO VÁN HIỆN TẠI ---
   current_loss_streak = 0
   fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
 
@@ -190,17 +210,7 @@ if len(history) >= 6:
       sim_mult = 1
 
     g_bet = base_bet * sim_mult
-    k_m = odds_map[s_main]
-    k_s = odds_map[s_sub]
-
-    m_m = round((g_bet * (k_s / (k_m + k_s))) / 10000) * 10000
-    if m_m < 10000:
-      m_m = 10000
-    m_s = g_bet - m_m
-    m_s = round(m_s / 10000) * 10000
-    if m_s < 10000:
-      m_s = 10000
-    actual_bet = m_m + m_s
+    m_m, m_s, actual_bet = calculate_money_split(g_bet, s_main, s_sub)
 
     actual_next = history[i]
     is_win = False
@@ -208,10 +218,10 @@ if len(history) >= 6:
 
     if actual_next == s_main:
       is_win = True
-      win_amount = m_m * k_m
+      win_amount = m_m * odds_map[s_main]
     elif actual_next == s_sub:
       is_win = True
-      win_amount = m_s * k_s
+      win_amount = m_s * odds_map[s_sub]
 
     if is_win:
       profit = win_amount - actual_bet
@@ -226,10 +236,11 @@ if len(history) >= 6:
 
     simulation_data.append({
         "Ván": i + 1,
-        "Dự Đoán": f"⭐{label_map[s_main]} / 🔹{label_map[s_sub]}",
+        "Chính": f"{label_map[s_main]} ({m_m:,.0f})",
+        "Phụ": f"{label_map[s_sub]} ({m_s:,.0f})",
         "Hệ số": f"x{sim_mult}",
-        "Cược": f"{actual_bet:,.0f}",
-        "KQ": str(actual_next),
+        "Tổng Cược": f"{actual_bet:,.0f}",
+        "KQ": label_map[actual_next],
         "TT": result_str,
         "Lãi/Lỗ": f"{profit:+,.0f}",
         "Ví": f"{running_capital:,.0f}",
@@ -246,34 +257,24 @@ if len(history) >= 6:
   else:
     multiplier = 1
 
-  total_current_bet = base_bet * multiplier
-  K1 = odds_map[main_pred]
-  K2 = odds_map[sub_pred]
+  total_current_bet_raw = base_bet * multiplier
+  money_main, money_sub, total_current_bet = calculate_money_split(
+      total_current_bet_raw, main_pred, sub_pred
+  )
 
-  raw_money_main = total_current_bet * (K2 / (K1 + K2))
-  money_main = round(raw_money_main / 10000) * 10000
-  if money_main < 10000:
-    money_main = 10000
-
-  money_sub = total_current_bet - money_main
-  money_sub = round(money_sub / 10000) * 10000
-  if money_sub < 10000:
-    money_sub = 10000
-
-  total_current_bet = money_main + money_sub
-
+  # Hiển thị trực quan 2 cửa
   col_m1, col_m2 = st.columns(2)
   with col_m1:
     st.metric(
         label="🎯 Cửa Chính",
         value=f"⭐ {label_map[main_pred]}",
-        delta=f"{money_main:,.0f} VNĐ",
+        delta=f"Cược: {money_main:,.0f} VNĐ (1:{odds_map[main_pred]})",
     )
   with col_m2:
     st.metric(
         label="🔹 Cửa Phụ",
         value=f"🔹 {label_map[sub_pred]}",
-        delta=f"{money_sub:,.0f} VNĐ",
+        delta=f"Cược: {money_sub:,.0f} VNĐ (1:{odds_map[sub_pred]})",
     )
 
   st.info(
@@ -297,7 +298,7 @@ if len(history) >= 6:
         st.info("⚖️ Trạng thái: An toàn")
 
     st.markdown(
-        "### 📊 Lịch Sử Dòng Tiền (Tỷ Lệ Thực Tế Nhà Cái)"
+        "### 📊 Lịch Sử Dòng Tiền (Đánh 2 Cửa - Tự Động Cân Đối Vốn)"
     )
     df_sim = pd.DataFrame(simulation_data)
     df_sim = df_sim.iloc[::-1].reset_index(drop=True)
