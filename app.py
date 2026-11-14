@@ -107,7 +107,6 @@ def get_prediction_for_slice(hist_slice):
   if len(hist_slice) < 6:
     return None, None, False, None, 0
 
-  # 1. Phát hiện cầu bệt (Streak Momentum)
   is_streak_detected = False
   streak_bonus_pred = None
   streak_count = 0
@@ -123,7 +122,6 @@ def get_prediction_for_slice(hist_slice):
       is_streak_detected = True
       streak_bonus_pred = last_val
 
-  # 2. Markov Bậc 2 kết hợp trọng số ván gần nhất
   transitions = {}
   for i in range(len(hist_slice) - 2):
     curr_pair = (hist_slice[i], hist_slice[i + 1])
@@ -159,7 +157,6 @@ def calculate_money_split(total_bet, main_pred, sub_pred):
   k_m = odds_map[main_pred]
   k_s = odds_map[sub_pred]
 
-  # Phân bổ tỷ trọng thông minh để cân đối lợi nhuận giữa 2 cửa
   raw_money_main = total_bet * (k_s / (k_m + k_s))
   money_main = round(raw_money_main / 10000) * 10000
   if money_main < 10000:
@@ -189,7 +186,7 @@ if len(history) >= 6:
         f" ({streak_count} tay liên tiếp) -> Ưu tiên bám đuôi!"
     )
 
-  # --- TÍNH TOÁN CHUỖI XỊT THỰC TẾ CHO VÁN HIỆN TẠI ---
+  # --- TÍNH TOÁN CHUỖI XỊT VÀ DÒNG TIỀN MÔ PHỎNG ---
   current_loss_streak = 0
   fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
 
@@ -226,12 +223,12 @@ if len(history) >= 6:
     if is_win:
       profit = win_amount - actual_bet
       running_capital += profit
-      sim_loss_streak = 0
+      sim_loss_streak = 0  # THẮNG: Reset chuỗi xịt về 0 để quay về mức cược gốc
       result_str = "🟢 Thắng"
     else:
       profit = -actual_bet
       running_capital -= actual_bet
-      sim_loss_streak += 1
+      sim_loss_streak += 1  # THUA: Tăng chuỗi xịt để ván sau tự động nhân tiền gấp thếp
       result_str = "🔴 Thua"
 
     simulation_data.append({
@@ -298,7 +295,7 @@ if len(history) >= 6:
         st.info("⚖️ Trạng thái: An toàn")
 
     st.markdown(
-        "### 📊 Lịch Sử Dòng Tiền (Đánh 2 Cửa - Tự Động Cân Đối Vốn)"
+        "### 📊 Lịch Sử Dòng Tiền (Đánh 2 Cửa - Cân Đối Lãi Vốn)"
     )
     df_sim = pd.DataFrame(simulation_data)
     df_sim = df_sim.iloc[::-1].reset_index(drop=True)
