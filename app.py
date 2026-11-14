@@ -7,30 +7,33 @@ st.set_page_config(
     page_title="Xóc Đĩa Pro - Mobile Optimized", layout="centered"
 )
 
-# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG (TO, RÕ, DỄ BẤM) ---
+# --- CSS TÙY CHỈNH GIAO DIỆN DI ĐỘNG & THU NHỎ THÔNG BÁO ---
 st.markdown("""
     <style>
-    /* Phóng to các nút bấm nhập liệu và chỉnh màu sắc nổi bật */
     div.stButton > button {
-        height: 60px;
-        font-size: 20px !important;
+        height: 55px;
+        font-size: 18px !important;
         font-weight: bold;
-        border-radius: 12px;
-        background-color: #f0f2f6;
-        border: 2px solid #d3d3d3;
-        color: #1f1f1f;
+        border-radius: 10px;
+        background-color: #f8f9fa;
+        border: 2px solid #cbd5e1;
+        color: #1e293b;
     }
     div.stButton > button:hover {
-        background-color: #ff4b4b;
+        background-color: #ef4444;
         color: white;
-        border-color: #ff4b4b;
+        border-color: #ef4444;
     }
-    /* Thu gọn lề trang để vừa khít màn hình điện thoại */
     .block-container {
-        padding-top: 1rem;
+        padding-top: 0.8rem;
         padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
+    .stAlert {
+        padding: 6px 12px !important;
+        font-size: 14px !important;
+        margin-bottom: 0.5rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -72,12 +75,13 @@ st.sidebar.markdown(f"🎯 **Chốt Lãi:** +{take_profit_amount:,.0f}")
 
 
 # --- PHẦN 2: BÀN PHÍM NHẬP LIỆU TO (0, 1, 2, 3, 4) ---
-st.markdown("### ⌨️ Nhập Kết Quả (Chạm để chọn số đỏ)")
+st.markdown("### ⌨️ Nhập Kết Quả")
 cols_btn = st.columns(6)
 
-# Rút gọn nhãn chỉ hiển thị số quân đỏ theo đúng yêu cầu
-label_map = {0: "0 Đỏ", 1: "1 Đỏ", 2: "2 Đỏ", 3: "3 Đỏ", 4: "4 Đỏ"}
-odds_map = {0: 16.0, 1: 4.8, 2: 3.6, 3: 4.8, 4: 16.0}
+label_map = {0: "4 Trắng", 1: "1 Đỏ 3 Trắng", 2: "2 Đỏ 2 Trắng", 3: "3 Đỏ 1 Trắng", 4: "4 Đỏ"}
+
+# CẬP NHẬT TỶ LỆ ĂN CHUẨN THỰC TẾ NHÀ CÁI ONLINE
+odds_map = {0: 15.0, 1: 3.8, 2: 2.6, 3: 3.8, 4: 15.0}
 
 for val in range(5):
   with cols_btn[val]:
@@ -95,8 +99,217 @@ if st.sidebar.button("🗑 Reset Lịch Sử"):
   st.session_state.history = []
   st.rerun()
 
+history = st.session_state.history
 
-# Các hàm quy đổi trạng thái
+
+# --- HÀM THUẬT TOÁN DỰ ĐOÁN CHUẨN (DÙNG CHUNG) ---
+def get_prediction_for_slice(hist_slice):
+  if len(hist_slice) < 6:
+    return None, None, False, None, 0
+
+  # 1. Phát hiện cầu bệt (Streak Momentum)
+  is_streak_detected = False
+  streak_bonus_pred = None
+  streak_count = 0
+
+  if len(hist_slice) >= 3:
+    last_val = hist_slice[-1]
+    for v in reversed(hist_slice):
+      if v == last_val:
+        streak_count += 1
+      else:
+        break
+    if streak_count >= 3:
+      is_streak_detected = True
+      streak_bonus_pred = last_val
+
+  # 2. Markov Bậc 2 kết hợp trọng số ván gần nhất
+  transitions = {}
+  for i in range(len(hist_slice) - 2):
+    curr_pair = (hist_slice[i], hist_slice[i + 1])
+    nxt = hist_slice[i + 2]
+    if curr_pair not in transitions:
+      transitions[curr_pair] = []
+    weight = 2 if i >= len(hist_slice) - 10 else 1
+    for _ in range(weight):
+      transitions[curr_pair].append(nxt)
+
+  last_pair = (hist_slice[-2], hist_slice[-1])
+  if last_pair in transitions and transitions[last_pair]:
+    possible_nexts = transitions[last_pair]
+  else:
+    possible_nexts = hist_slice
+
+  counts = Counter(possible_nexts)
+  top_items = counts.most_common(2)
+
+  main_pred = top_items[0][0] if len(top_items) > 0 else hist_slice[-1]
+  sub_pred = top_items[1][0] if len(top_items) > 1 else (main_pred + 1) % 5
+
+  if is_streak_detected and streak_bonus_pred is not None:
+    if streak_bonus_pred != main_pred:
+      sub_pred = main_pred
+      main_pred = streak_bonus_pred
+
+  return main_pred, sub_pred, is_streak_detected, streak_bonus_pred, streak_count
+
+
+# --- PHẦN 3: PHÂN TÍCH & DỰ ĐOÁN (TỪ VÁN THỨ 7 TRỞ ĐI) ---
+st.markdown("---")
+st.subheader("🤖 Phân Tích & Vào Tiền (Từ Ván 7)")
+
+if len(history) >= 6:
+  main_pred, sub_pred, is_streak_detected, streak_bonus_pred, streak_count = (
+      get_prediction_for_slice(history)
+  )
+
+  if is_streak_detected:
+    st.warning(
+        f"🔥 **PHÁT HIỆN CẦU BỆT:** Đang bệt số **{streak_bonus_pred}**"
+        f" ({streak_count} tay liên tiếp) -> Ưu tiên bám đuôi!"
+    )
+
+  # --- TÍNH TOÁN CHUỖI XỊT THỰC TẾ ---
+  current_loss_streak = 0
+  fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
+
+  sim_loss_streak = 0
+  simulation_data = []
+  running_capital = total_capital
+
+  for i in range(6, len(history)):
+    sub_hist = history[:i]
+    s_main, s_sub, _, _, _ = get_prediction_for_slice(sub_hist)
+
+    if "Martingale" in betting_strategy:
+      sim_mult = 2**sim_loss_streak
+    elif "Fibonacci" in betting_strategy:
+      s_idx = min(sim_loss_streak, len(fib) - 1)
+      sim_mult = fib[s_idx]
+    else:
+      sim_mult = 1
+
+    g_bet = base_bet * sim_mult
+    k_m = odds_map[s_main]
+    k_s = odds_map[s_sub]
+
+    m_m = round((g_bet * (k_s / (k_m + k_s))) / 10000) * 10000
+    if m_m < 10000:
+      m_m = 10000
+    m_s = g_bet - m_m
+    m_s = round(m_s / 10000) * 10000
+    if m_s < 10000:
+      m_s = 10000
+    actual_bet = m_m + m_s
+
+    actual_next = history[i]
+    is_win = False
+    win_amount = 0
+
+    if actual_next == s_main:
+      is_win = True
+      win_amount = m_m * k_m
+    elif actual_next == s_sub:
+      is_win = True
+      win_amount = m_s * k_s
+
+    if is_win:
+      profit = win_amount - actual_bet
+      running_capital += profit
+      sim_loss_streak = 0
+      result_str = "🟢 Thắng"
+    else:
+      profit = -actual_bet
+      running_capital -= actual_bet
+      sim_loss_streak += 1
+      result_str = "🔴 Thua"
+
+    simulation_data.append({
+        "Ván": i + 1,
+        "Dự Đoán": f"⭐{label_map[s_main]} / 🔹{label_map[s_sub]}",
+        "Hệ số": f"x{sim_mult}",
+        "Cược": f"{actual_bet:,.0f}",
+        "KQ": str(actual_next),
+        "TT": result_str,
+        "Lãi/Lỗ": f"{profit:+,.0f}",
+        "Ví": f"{running_capital:,.0f}",
+    })
+
+  current_loss_streak = sim_loss_streak
+
+  multiplier = 1
+  if "Martingale" in betting_strategy:
+    multiplier = 2**current_loss_streak
+  elif "Fibonacci" in betting_strategy:
+    idx = min(current_loss_streak, len(fib) - 1)
+    multiplier = fib[idx]
+  else:
+    multiplier = 1
+
+  total_current_bet = base_bet * multiplier
+  K1 = odds_map[main_pred]
+  K2 = odds_map[sub_pred]
+
+  raw_money_main = total_current_bet * (K2 / (K1 + K2))
+  money_main = round(raw_money_main / 10000) * 10000
+  if money_main < 10000:
+    money_main = 10000
+
+  money_sub = total_current_bet - money_main
+  money_sub = round(money_sub / 10000) * 10000
+  if money_sub < 10000:
+    money_sub = 10000
+
+  total_current_bet = money_main + money_sub
+
+  col_m1, col_m2 = st.columns(2)
+  with col_m1:
+    st.metric(
+        label="🎯 Cửa Chính",
+        value=f"⭐ {label_map[main_pred]}",
+        delta=f"{money_main:,.0f} VNĐ",
+    )
+  with col_m2:
+    st.metric(
+        label="🔹 Cửa Phụ",
+        value=f"🔹 {label_map[sub_pred]}",
+        delta=f"{money_sub:,.0f} VNĐ",
+    )
+
+  st.info(
+      f"💰 **Tổng Cược Ván Kế Tiếp:** `{total_current_bet:,.0f} VNĐ` (Chiến"
+      f" thuật: {betting_strategy} | Hệ số: **x{multiplier}** | Xịt liên"
+      f" tiếp: {current_loss_streak} tay)"
+  )
+
+  # --- HIỂN THỊ SỐ DƯ VÍ & BẢNG LỊCH SỬ DÒNG TIỀN ---
+  if simulation_data:
+    st.markdown("---")
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f} VNĐ")
+    with col_w2:
+      if running_capital <= total_capital - stop_loss_amount:
+        st.error("🚨 CHẠM CẮT LỖ!")
+      elif running_capital >= total_capital + take_profit_amount:
+        st.success("🎯 ĐẠT CHỐT LÃI!")
+      else:
+        st.info("⚖️ Trạng thái: An toàn")
+
+    st.markdown(
+        "### 📊 Lịch Sử Dòng Tiền (Tỷ Lệ Thực Tế Nhà Cái)"
+    )
+    df_sim = pd.DataFrame(simulation_data)
+    df_sim = df_sim.iloc[::-1].reset_index(drop=True)
+    st.dataframe(df_sim, use_container_width=True, hide_index=True)
+else:
+  st.warning(
+      f"⚠️ Đã nhập {len(history)}/6 ván. Hãy nhập đủ tối thiểu 6 ván đầu để"
+      " hệ thống bắt đầu dự đoán và vào tiền từ ván thứ 7!"
+  )
+
+
+# --- PHẦN 4: BẢNG CẦU CHI TIẾT (ĐỂ PHÍA DƯỚI) ---
 def get_chan_le(val):
   return "C" if val in [0, 2, 4] else "L"
 
@@ -110,10 +323,6 @@ def get_tai_xiu(val):
     return "2"
 
 
-history = st.session_state.history
-
-
-# --- PHẦN 3: XÂY DỰNG BẢNG CẦU GỌN GÀNG CHO ĐIỆN THOẠI ---
 def create_compact_casino_grid(data_list, max_rows=5, max_cols=8):
   if not data_list:
     return pd.DataFrame()
@@ -155,10 +364,11 @@ def create_compact_casino_grid(data_list, max_rows=5, max_cols=8):
 
 
 st.markdown("---")
+st.markdown("### 📈 Lịch Sử Cầu Bàn Chơi")
 col_b1, col_b2, col_b3 = st.columns(3)
 
 with col_b1:
-  st.markdown("**📊 C/L**")
+  st.markdown("**C/L**")
   cl_data = [get_chan_le(v) for v in history]
   df_cl = create_compact_casino_grid(cl_data)
   if not df_cl.empty:
@@ -167,7 +377,7 @@ with col_b1:
     st.info("Trống")
 
 with col_b2:
-  st.markdown("**📊 T/X/2**")
+  st.markdown("**T/X/2**")
   tx_data = [get_tai_xiu(v) for v in history]
   df_tx = create_compact_casino_grid(tx_data)
   if not df_tx.empty:
@@ -176,228 +386,10 @@ with col_b2:
     st.info("Trống")
 
 with col_b3:
-  st.markdown("**📊 Số Đỏ**")  # Bảng chi tiết chỉ hiển thị số (0, 1, 2, 3, 4)
+  st.markdown("**Số Đỏ**")
   chitiet_data = [str(v) for v in history]
   df_ct = create_compact_casino_grid(chitiet_data)
   if not df_ct.empty:
     st.dataframe(df_ct, use_container_width=True, hide_index=True)
   else:
     st.info("Trống")
-
-
-# --- PHẦN 4: THUẬT TOÁN MARKOV BẬC 2 & BỘ LỌC ĐỘ NHIỄU ---
-st.markdown("---")
-st.subheader("🤖 Phân Tích & Vào Tiền (Bội Số 10k)")
-
-if len(history) >= 6:
-  recent_window = history[-6:]
-  changes = sum(
-      1
-      for i in range(len(recent_window) - 1)
-      if recent_window[i] != recent_window[i + 1]
-  )
-  noise_score = (changes / (len(recent_window) - 1)) * 100
-
-  transitions = {}
-  for i in range(len(history) - 2):
-    curr_pair = (history[i], history[i + 1])
-    nxt = history[i + 2]
-    if curr_pair not in transitions:
-      transitions[curr_pair] = []
-    transitions[curr_pair].append(nxt)
-
-  last_pair = (history[-2], history[-1])
-  if last_pair in transitions and transitions[last_pair]:
-    possible_nexts = transitions[last_pair]
-  else:
-    possible_nexts = history
-
-  counts = Counter(possible_nexts)
-  top_items = counts.most_common(2)
-
-  main_pred = top_items[0][0] if len(top_items) > 0 else history[-1]
-  sub_pred = top_items[1][0] if len(top_items) > 1 else (main_pred + 1) % 5
-
-  recent_checks = []
-  for i in range(4, len(history)):
-    sub_hist = history[:i]
-    sub_pair = (sub_hist[-2], sub_hist[-1])
-    sub_trans = {}
-    for j in range(len(sub_hist) - 2):
-      spair = (sub_hist[j], sub_hist[j + 1])
-      snxt = sub_hist[j + 2]
-      if spair not in sub_trans:
-        sub_trans[spair] = []
-      sub_trans[spair].append(snxt)
-
-    if sub_pair in sub_trans and sub_trans[sub_pair]:
-      sub_counts = Counter(sub_trans[sub_pair])
-      sub_top = sub_counts.most_common(2)
-      s_main = sub_top[0][0] if len(sub_top) > 0 else sub_hist[-1]
-      s_sub = sub_top[1][0] if len(sub_top) > 1 else (s_main + 1) % 5
-      recent_checks.append(history[i] == s_main or history[i] == s_sub)
-
-  current_loss_streak = 0
-  if recent_checks:
-    for res in reversed(recent_checks):
-      if not res:
-        current_loss_streak += 1
-      else:
-        break
-
-  fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
-  multiplier = 1
-  if "Martingale" in betting_strategy:
-    multiplier = 2**current_loss_streak
-  elif "Fibonacci" in betting_strategy:
-    idx = min(current_loss_streak, len(fib) - 1)
-    multiplier = fib[idx]
-  else:
-    multiplier = 1
-
-  total_current_bet = base_bet * multiplier
-
-  K1 = odds_map[main_pred]
-  K2 = odds_map[sub_pred]
-
-  raw_money_main = total_current_bet * (K2 / (K1 + K2))
-  money_main = round(raw_money_main / 10000) * 10000
-  if money_main < 10000:
-    money_main = 10000
-
-  money_sub = total_current_bet - money_main
-  money_sub = round(money_sub / 10000) * 10000
-  if money_sub < 10000:
-    money_sub = 10000
-
-  total_current_bet = money_main + money_sub
-
-  if noise_score >= 80:
-    st.error(f"🚨 **CẦU NHIỄU NẶNG ({noise_score:.0f}%):** Tạm nghỉ!")
-  elif noise_score >= 60:
-    st.warning(f"⚠️ **CẦU HƠI NHIỄU ({noise_score:.0f}%):** Đánh nhỏ thăm dò.")
-  else:
-    st.success(f"🟢 **CẦU ỔN ĐỊNH ({noise_score:.0f}%):** Tín hiệu tốt.")
-
-  col_m1, col_m2 = st.columns(2)
-  with col_m1:
-    st.metric(
-        label="🎯 Dự Đoán",
-        value=f"⭐ {label_map[main_pred]}",
-        delta=f"🔹 {label_map[sub_pred]}",
-    )
-  with col_m2:
-    st.metric(
-        label="💰 Tổng Cược",
-        value=f"{total_current_bet:,.0f} VNĐ",
-        delta=f"x{multiplier}",
-    )
-
-  st.markdown("---")
-  st.markdown("### 📋 Phân Bổ Tiền (Tròn 10k)")
-  col_t1, col_t2 = st.columns(2)
-  with col_t1:
-    st.markdown(
-        f"* ⭐ **Cửa Chính (`{label_map[main_pred]}`):**"
-        f" **`{money_main:,.0f} VNĐ`**"
-    )
-  with col_t2:
-    st.markdown(
-        f"* 🔹 **Cửa Phụ (`{label_map[sub_pred]}`):**"
-        f" **`{money_sub:,.0f} VNĐ`**"
-    )
-
-  # --- PHẦN 5: SAO KÊ DÒNG TIỀN ---
-  st.markdown("---")
-  st.subheader("📊 Lịch Sử Dòng Tiền")
-
-  simulation_data = []
-  running_capital = total_capital
-  sim_loss_streak = 0
-
-  for i in range(4, len(history)):
-    sub_hist = history[:i]
-    sub_pair = (sub_hist[-2], sub_hist[-1])
-    sub_trans = {}
-    for j in range(len(sub_hist) - 2):
-      spair = (sub_hist[j], sub_hist[j + 1])
-      snxt = sub_hist[j + 2]
-      if spair not in sub_trans:
-        sub_trans[spair] = []
-      sub_trans[spair].append(snxt)
-
-    if sub_pair in sub_trans and sub_trans[sub_pair]:
-      sub_counts = Counter(sub_trans[sub_pair])
-      sub_top = sub_counts.most_common(2)
-
-      s_main = sub_top[0][0] if len(sub_top) > 0 else sub_hist[-1]
-      s_sub = sub_top[1][0] if len(sub_top) > 1 else (s_main + 1) % 5
-
-      if "Martingale" in betting_strategy:
-        sim_mult = 2**sim_loss_streak
-      elif "Fibonacci" in betting_strategy:
-        s_idx = min(sim_loss_streak, len(fib) - 1)
-        sim_mult = fib[s_idx]
-      else:
-        sim_mult = 1
-
-      g_bet = base_bet * sim_mult
-      k_m = odds_map[s_main]
-      k_s = odds_map[s_sub]
-
-      m_m = round((g_bet * (k_s / (k_m + k_s))) / 10000) * 10000
-      if m_m < 10000:
-        m_m = 10000
-      m_s = g_bet - m_m
-      m_s = round(m_s / 10000) * 10000
-      if m_s < 10000:
-        m_s = 10000
-      actual_bet = m_m + m_s
-
-      actual_next = history[i]
-      is_win = False
-      win_amount = 0
-      if actual_next == s_main:
-        is_win = True
-        win_amount = m_m * k_m
-      elif actual_next == s_sub:
-        is_win = True
-        win_amount = m_s * k_s
-
-      if is_win:
-        profit = win_amount - actual_bet
-        running_capital += profit
-        sim_loss_streak = 0
-        result_str = "🟢 Thắng"
-      else:
-        profit = -actual_bet
-        running_capital -= actual_bet
-        sim_loss_streak += 1
-        result_str = "🔴 Thua"
-
-      simulation_data.append({
-          "Ván": i + 1,
-          "Cược": f"{actual_bet:,.0f}",
-          "KQ": str(actual_next),
-          "TT": result_str,
-          "Lãi/Lỗ": f"{profit:+,.0f}",
-          "Ví": f"{running_capital:,.0f}",
-      })
-
-  if simulation_data:
-    df_sim = pd.DataFrame(simulation_data)
-    st.dataframe(df_sim, use_container_width=True, hide_index=True)
-
-    net_profit = running_capital - total_capital
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-      st.metric(label="💵 Số Dư Ví", value=f"{running_capital:,.0f}")
-    with col_s2:
-      if running_capital <= total_capital - stop_loss_amount:
-        st.error("🚨 CHẠM CẮT LỖ!")
-      elif running_capital >= total_capital + take_profit_amount:
-        st.success("🎯 ĐẠT CHỐT LÃI!")
-      else:
-        st.info("⚖️ An toàn.")
-else:
-  st.warning("⚠️ Nhập tối thiểu 6 ván để kích hoạt.")
